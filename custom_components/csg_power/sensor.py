@@ -184,9 +184,30 @@ class CSGBaseSensor(CoordinatorEntity, SensorEntity):
     def unique_id(self) -> str | None:
         return f"{DOMAIN}.{self._account_number}.{self._entity_suffix}"
 
+    # Friendly name mapping for sensor suffixes
+    _SENSOR_NAMES: dict[str, str] = {
+        SUFFIX_BAL: "余额",
+        SUFFIX_ARR: "欠费",
+        SUFFIX_YESTERDAY_KWH: "昨日用电量",
+        SUFFIX_LATEST_DAY_KWH: "最近日用电量",
+        SUFFIX_LATEST_DAY_COST: "最近日电费",
+        SUFFIX_THIS_YEAR_KWH: "本年总用电量",
+        SUFFIX_THIS_YEAR_COST: "本年总电费",
+        SUFFIX_THIS_MONTH_KWH: "本月累计用电量",
+        SUFFIX_THIS_MONTH_COST: "本月累计电费",
+        SUFFIX_CURRENT_LADDER: "当前阶梯档位",
+        SUFFIX_CURRENT_LADDER_REMAINING_KWH: "阶梯剩余电量",
+        SUFFIX_CURRENT_LADDER_TARIFF: "阶梯电价",
+        SUFFIX_LAST_YEAR_KWH: "上年总用电量",
+        SUFFIX_LAST_YEAR_COST: "上年总电费",
+        SUFFIX_LAST_MONTH_KWH: "上月累计用电量",
+        SUFFIX_LAST_MONTH_COST: "上月累计电费",
+    }
+
     @property
     def name(self) -> str | None:
-        return f"{self._account_number}-{self._entity_suffix}"
+        friendly = self._SENSOR_NAMES.get(self._entity_suffix, self._entity_suffix)
+        return f"{self._account_number} {friendly}"
 
     @property
     def should_poll(self) -> bool:
