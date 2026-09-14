@@ -71,7 +71,7 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return CSGOptionsFlowHandler(config_entry)
+        return CSGOptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -359,9 +359,19 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class CSGOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize options flow.
+
+        Accepts config_entry for HA < 2024.11 compatibility; newer HA core
+        instantiates OptionsFlow without arguments and sets self.config_entry.
+        """
+        if args and isinstance(args[0], config_entries.ConfigEntry):
+            # HA < 2024.11 passes config_entry as the first positional argument.
+            self.config_entry = args[0]
+            super().__init__()
+        else:
+            # HA >= 2024.11 sets self.config_entry automatically.
+            super().__init__(*args, **kwargs)
         self.all_electricity_accounts: list[CSGElectricityAccount] = []
 
     async def async_step_init(

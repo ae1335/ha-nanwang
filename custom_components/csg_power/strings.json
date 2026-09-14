@@ -60,7 +60,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "选择操作"
+        "title": "选择操作",
+        "data": {
+          "action": "操作"
+        }
       },
       "add_account": {
         "title": "选择缴费号"

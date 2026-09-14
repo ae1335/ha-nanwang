@@ -60,7 +60,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "Select action"
+        "title": "Select action",
+        "data": {
+          "action": "Action"
+        }
       },
       "add_account": {
         "title": "Select electricity account"
