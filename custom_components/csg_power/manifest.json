@@ -1,17 +1,17 @@
 {
   "domain": "csg_power",
   "name": "China Southern Power Grid",
-  "codeowners": ["@openclaw"],
+  "codeowners": ["@ae1335"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/openclaw/csg_power",
+  "documentation": "https://github.com/ae1335/ha-nanwang",
   "homekit": {},
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/openclaw/csg_power/issues",
+  "issue_tracker": "https://github.com/ae1335/ha-nanwang/issues",
   "requirements": [
-    "pycryptodome",
-    "brotli",
-    "async_timeout"
+    "pycryptodome>=3.20",
+    "brotli>=1.1",
+    "async_timeout>=4.0"
   ],
   "ssdp": [],
   "version": "2.0.0",

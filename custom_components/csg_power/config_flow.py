@@ -15,7 +15,14 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from requests import RequestException
 
-from .api import LOGIN_TYPE_TO_QR_CODE_TYPE, CSGClient, CSGElectricityAccount, InvalidCredentials, LoginType
+from .api import (
+    LOGIN_TYPE_TO_QR_APP_NAME,
+    LOGIN_TYPE_TO_QR_CODE_TYPE,
+    CSGClient,
+    CSGElectricityAccount,
+    InvalidCredentials,
+    LoginType,
+)
 from .const import (
     ABORT_ALL_ADDED,
     ABORT_NO_ACCOUNT,
@@ -35,7 +42,6 @@ from .const import (
     ERROR_INVALID_AUTH,
     ERROR_QR_NOT_SCANNED,
     ERROR_UNKNOWN,
-    LOGIN_TYPE_TO_QR_APP_NAME,
     STEP_ADD_ACCOUNT,
     STEP_ALI_QR_LOGIN,
     STEP_CSG_QR_LOGIN,
