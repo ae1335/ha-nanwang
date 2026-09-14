@@ -362,16 +362,13 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, *args, **kwargs) -> None:
         """Initialize options flow.
 
-        Accepts config_entry for HA < 2024.11 compatibility; newer HA core
-        instantiates OptionsFlow without arguments and sets self.config_entry.
+        HA >= 2024.11 instantiates OptionsFlow without arguments and sets
+        self.config_entry automatically. HA < 2024.11 passes config_entry
+        as the first positional argument.
         """
+        super().__init__(*args, **kwargs)
         if args and isinstance(args[0], config_entries.ConfigEntry):
-            # HA < 2024.11 passes config_entry as the first positional argument.
             self.config_entry = args[0]
-            super().__init__()
-        else:
-            # HA >= 2024.11 sets self.config_entry automatically.
-            super().__init__(*args, **kwargs)
         self.all_electricity_accounts: list[CSGElectricityAccount] = []
 
     async def async_step_init(
