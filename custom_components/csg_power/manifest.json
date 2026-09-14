@@ -1,0 +1,19 @@
+{
+  "domain": "csg_power",
+  "name": "China Southern Power Grid",
+  "codeowners": ["@openclaw"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/openclaw/csg_power",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/openclaw/csg_power/issues",
+  "requirements": [
+    "pycryptodome",
+    "brotli",
+    "async_timeout"
+  ],
+  "ssdp": [],
+  "version": "2.0.0",
+  "zeroconf": []
+}

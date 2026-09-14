@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select login method",
+        "description": "Choose how to log in to your China Southern Power Grid account",
+        "menu_options": {
+          "sms_login": "SMS verification code",
+          "sms_pwd_login": "SMS code and password",
+          "csg_qr_login": "CSG App QR code",
+          "wx_qr_login": "WeChat QR code",
+          "ali_qr_login": "Alipay QR code"
+        }
+      },
+      "sms_login": {
+        "title": "Login to China Southern Power Grid",
+        "description": "Login with phone number and SMS verification code",
+        "data": {
+          "username": "Phone number"
+        }
+      },
+      "sms_pwd_login": {
+        "title": "Login to China Southern Power Grid",
+        "description": "Login with phone number, password and SMS verification code",
+        "data": {
+          "username": "Phone number",
+          "password": "Password"
+        }
+      },
+      "validate_sms_code": {
+        "title": "Enter SMS verification code",
+        "description": "Verification code sent to: {phone_no}",
+        "data": {
+          "sms_code": "SMS verification code"
+        }
+      },
+      "qr_login": {
+        "title": "Scan QR code to login",
+        "description": "{description}",
+        "data": {
+          "refresh_qr_code": "Refresh QR code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate account",
+        "description": "Login session has expired, please log in again"
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "qr_not_scanned": "Please scan the QR code and confirm login",
+      "unknown": "Unknown error: {error_detail}"
+    },
+    "abort": {
+      "reauth_successful": "Re-authentication was successful",
+      "already_configured": "Account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Select action"
+      },
+      "add_account": {
+        "title": "Select electricity account"
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "no_account": "No electricity account bound to this account",
+      "all_added": "No more electricity accounts to add"
+    }
+  }
+}

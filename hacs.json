@@ -1,0 +1,7 @@
+{
+  "name": "China Southern Power Grid",
+  "content_in_root": false,
+  "render_readme": true,
+  "homeassistant": "2024.4.0",
+  "country": ["CN"]
+}
