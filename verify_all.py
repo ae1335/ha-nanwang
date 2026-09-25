@@ -3,6 +3,7 @@ import ast
 import json
 import pathlib
 import re
+from typing import Any
 
 base = pathlib.Path("custom_components/csg_power")
 errors = []
@@ -130,7 +131,37 @@ if missing_errors:
 else:
     print("[OK] All error keys present in strings.json")
 
-# 7. Summary
+# 7. Translation parity: strings.json / zh-Hans.json / en.json must share
+#    the exact same key structure, otherwise some languages silently fall
+#    back to untranslated strings.
+def _flatten_keys(obj: Any, prefix: str = "") -> set[str]:
+    keys: set[str] = set()
+    for k, v in obj.items():
+        path = f"{prefix}.{k}" if prefix else str(k)
+        keys.add(path)
+        if isinstance(v, dict):
+            keys |= _flatten_keys(v, path)
+    return keys
+
+strings_key_set = _flatten_keys(strings)
+for trans_name in ("zh-Hans.json", "en.json"):
+    trans = json.loads(
+        (base / "translations" / trans_name).read_text(encoding="utf-8")
+    )
+    trans_keys = _flatten_keys(trans)
+    miss = strings_key_set - trans_keys
+    extra = trans_keys - strings_key_set
+    if miss or extra:
+        print(f"[FAIL] Translation structure mismatch in {trans_name}")
+        if miss:
+            print(f"       missing keys: {sorted(miss)}")
+        if extra:
+            print(f"       extra keys:   {sorted(extra)}")
+        errors.append(f"Translation mismatch in {trans_name}")
+    else:
+        print(f"[OK] {trans_name} key structure matches strings.json")
+
+# 8. Summary
 print(f"\n=== Summary: {len(errors)} errors ===")
 for e in errors:
     print(f"  {e}")

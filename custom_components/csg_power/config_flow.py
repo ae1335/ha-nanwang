@@ -243,17 +243,32 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client = CSGClient()
         if user_input is None:
             login_type = self.context["user_data"][CONF_LOGIN_TYPE]
-            login_id, image_link = await self.hass.async_add_executor_job(
-                client.api_create_login_qr_code,
-                LOGIN_TYPE_TO_QR_CODE_TYPE[login_type],
+            schema = vol.Schema(
+                {vol.Required(CONF_REFRESH_QR_CODE, default=False): bool}
             )
+            try:
+                login_id, image_link = await self.hass.async_add_executor_job(
+                    client.api_create_login_qr_code,
+                    LOGIN_TYPE_TO_QR_CODE_TYPE[login_type],
+                )
+            except (RequestException, CSGAPIError) as exc:
+                _LOGGER.exception("Creating QR code failed")
+                return self.async_show_form(
+                    step_id=STEP_QR_LOGIN,
+                    data_schema=schema,
+                    errors={"base": ERROR_CANNOT_CONNECT},
+                    description_placeholders={
+                        "description": (
+                            "<p>二维码生成失败，请勾选“刷新二维码”后重试。</p>"
+                            f"<p>{exc}</p>"
+                        )
+                    },
+                )
             self.context["user_data"]["login_id"] = login_id
             self.context["user_data"]["image_link"] = image_link
             return self.async_show_form(
                 step_id=STEP_QR_LOGIN,
-                data_schema=vol.Schema(
-                    {vol.Required(CONF_REFRESH_QR_CODE, default=False): bool}
-                ),
+                data_schema=schema,
                 description_placeholders={
                     "description": (
                         f"<p>使用{LOGIN_TYPE_TO_QR_APP_NAME[login_type]}扫码登录。"
@@ -273,32 +288,62 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client = CSGClient()
         login_type = self.context["user_data"][CONF_LOGIN_TYPE]
         login_id = self.context["user_data"]["login_id"]
-        ok, auth_token = await self.hass.async_add_executor_job(
-            client.api_get_qr_login_status, login_id
+        schema = vol.Schema(
+            {vol.Required(CONF_REFRESH_QR_CODE, default=False): bool}
         )
-        if ok:
-            client.set_authentication_params(auth_token)
-            user_info = await self.hass.async_add_executor_job(client.api_get_user_info)
-            username = user_info.get("mobile", "")
-            await self.check_and_set_unique_id(username)
-            return await self.create_or_update_config_entry(
-                auth_token, login_type, username
+
+        errors: dict[str, str] = {}
+        error_detail = ""
+        auth_token = ""
+        try:
+            ok, auth_token = await self.hass.async_add_executor_job(
+                client.api_get_qr_login_status, login_id
             )
+        except (RequestException, CSGAPIError) as exc:
+            # Includes the expired-QR-code case: the server replies with a
+            # non-success status which the client raises as CSGAPIError.
+            # Previously this crashed the whole flow; now the user gets the
+            # form back and can tick "refresh QR code" to start over.
+            _LOGGER.exception("Checking QR login status failed")
+            errors["base"] = ERROR_CANNOT_CONNECT
+            error_detail = str(exc)
+
+        if not errors and ok:
+            try:
+                client.set_authentication_params(auth_token)
+                user_info = await self.hass.async_add_executor_job(
+                    client.api_get_user_info
+                )
+            except (RequestException, CSGAPIError) as exc:
+                _LOGGER.exception("Fetching user info after QR login failed")
+                errors["base"] = ERROR_CANNOT_CONNECT
+                error_detail = str(exc)
+            else:
+                username = user_info.get("mobile", "")
+                await self.check_and_set_unique_id(username)
+                return await self.create_or_update_config_entry(
+                    auth_token, login_type, username
+                )
+
+        if not errors:
+            errors["base"] = ERROR_QR_NOT_SCANNED
 
         image_link = self.context["user_data"]["image_link"]
+        description = (
+            f"<p>使用{LOGIN_TYPE_TO_QR_APP_NAME[login_type]}扫码登录。"
+            f"登录完成后，点击下一步。</p>"
+        )
+        if image_link:
+            description += (
+                f'<img src="{image_link}" alt="QR code" style="width: 200px;"/>'
+            )
+        if error_detail:
+            description += f"<p>二维码可能已失效，请勾选“刷新二维码”后重新扫码。{error_detail}</p>"
         return self.async_show_form(
             step_id=STEP_QR_LOGIN,
-            data_schema=vol.Schema(
-                {vol.Required(CONF_REFRESH_QR_CODE, default=False): bool}
-            ),
-            errors={"base": ERROR_QR_NOT_SCANNED},
-            description_placeholders={
-                "description": (
-                    f"<p>使用{LOGIN_TYPE_TO_QR_APP_NAME[login_type]}扫码登录。"
-                    f"登录完成后，点击下一步。</p>"
-                    f'<img src="{image_link}" alt="QR code" style="width: 200px;"/>'
-                )
-            },
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"description": description},
         )
 
     async def check_and_set_unique_id(self, username: str) -> None:
@@ -446,11 +491,14 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_abort(reason=ERROR_CANNOT_CONNECT)
         if not logged_in:
             raise ConfigEntryAuthFailed("Login expired")
-        await self.hass.async_add_executor_job(client.initialize)
-
-        accounts = await self.hass.async_add_executor_job(
-            client.get_all_electricity_accounts
-        )
+        try:
+            await self.hass.async_add_executor_job(client.initialize)
+            accounts = await self.hass.async_add_executor_job(
+                client.get_all_electricity_accounts
+            )
+        except (RequestException, CSGAPIError):
+            _LOGGER.exception("Fetching linked ele accounts failed")
+            return self.async_abort(reason=ERROR_CANNOT_CONNECT)
         self.all_electricity_accounts = accounts
         if not accounts:
             _LOGGER.warning(

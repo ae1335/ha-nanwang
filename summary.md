@@ -164,3 +164,19 @@ custom_components/csg_power/
 2. 新增 `.github/workflows/validate.yml`：push/PR 时自动运行 pyflakes、verify_all.py、hassfest 校验与 HACS 校验。
 3. manifest 版本升至 2.1.1。
 
+## 7. v2.1.2 改进内容
+
+### 7.1 配置流异常处理补全（扫码登录崩溃修复）
+
+此前扫码登录流程中多处 API 调用没有任何异常捕获：
+
+1. **二维码过期导致 flow 崩溃**：二维码有效期约 5 分钟，过期后 `getLoginInfo` 返回非成功状态，客户端抛 `CSGAPIError`，而 `async_step_validate_qr_login` 未捕获——整个配置流程直接以"未知错误"崩溃，用户只能从头再来。现在捕获后返回原表单并提示"二维码可能已失效，请刷新后重新扫码"，用户勾选刷新即可重试。
+2. **生成二维码失败**（网络异常）：`async_step_qr_login` 现在返回带 `cannot_connect` 错误的表单而非崩溃。
+3. **扫码成功后获取用户信息失败**：同样捕获并允许重试。
+4. **选项流添加缴费号**：`initialize`/`get_all_electricity_accounts` 的网络异常现在以 `cannot_connect` 优雅中止。
+
+### 7.2 校验工具增强
+
+- `verify_all.py` 新增**翻译结构一致性检查**：strings.json / zh-Hans.json / en.json 三份文件键结构必须完全一致，防止未来某个语言悄悄缺翻译。
+- manifest 版本升至 2.1.2。
+
