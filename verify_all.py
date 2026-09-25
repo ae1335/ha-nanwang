@@ -209,6 +209,42 @@ for trans_name in ("zh-Hans.json", "en.json"):
     else:
         print(f"[OK] {trans_name} key structure matches strings.json")
 
+# 7. Cross-check: every SUFFIX_*/ATTR_KEY_* referenced in sensor.py must be
+#    written by the coordinator, i.e. appear as the inner key of an
+#    assignment to self._gathered_data[...][KEY] = ... . This catches
+#    "sensor entity added but its data is never produced" mistakes.
+sensor_tree = ast.parse((base / "sensor.py").read_text(encoding="utf-8"))
+referenced_keys = set()
+filled_keys = set()
+for node in ast.walk(sensor_tree):
+    if isinstance(node, ast.Name) and (
+        node.id.startswith("SUFFIX_") or node.id.startswith("ATTR_KEY_")
+    ):
+        referenced_keys.add(node.id)
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Subscript) and isinstance(
+                target.value, ast.Subscript
+            ):
+                inner = target.slice
+                if isinstance(inner, ast.Name):
+                    filled_keys.add(inner.id)
+                elif isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+                    filled_keys.add(inner.value)
+
+missing_fill = referenced_keys - filled_keys
+if missing_fill:
+    print(
+        f"[FAIL] Keys referenced in sensor.py but never filled by the "
+        f"coordinator: {sorted(missing_fill)}"
+    )
+    errors.append(f"Keys missing data source: {sorted(missing_fill)}")
+else:
+    print(
+        f"[OK] All {len(referenced_keys)} SUFFIX_/ATTR_KEY_ keys referenced "
+        f"in sensor.py are filled by the coordinator"
+    )
+
 # 8. Summary
 print(f"\n=== Summary: {len(errors)} errors ===")
 for e in errors:

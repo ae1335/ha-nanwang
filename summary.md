@@ -235,3 +235,19 @@ custom_components/csg_power/
 - verify_all.py 新增 **manifest 完整性检查**：必填键齐全、version 语义化格式（x.y.z）、domain 与目录名一致、iot_class 合法值、requirements 条目格式规范。
 - manifest 版本升至 2.1.5。
 
+## 11. v2.1.6 改进内容（终审）
+
+### 11.1 终审重读
+
+全部改动完成后首次完整重读六个核心文件（api 客户端、sensor、config_flow、__init__、utils、tests），确认多轮补丁叠加后逻辑自洽：reauth 修复、密码不落盘、QR 异常处理、`_login_expired` 标志与首次刷新语义相互兼容。修正一处类型注解失实：`api_get_metering_point` 实际返回列表而非字典。
+
+### 11.2 跨文件一致性检查
+
+verify_all.py 新增 **AST 交叉检查**：sensor.py 中引用的所有 `SUFFIX_*`/`ATTR_KEY_*` 键必须出现在 coordinator 的 `_gathered_data[...][KEY] = ...` 赋值目标中——防止"添加了传感器实体却没有任何数据源"这类错误（当前 22 个键全部有来源）。该检查独立于单元测试，对未写测试的新代码同样有效。
+
+### 11.3 CI 实证
+
+下载 v2.1.5 的 HACS 校验日志确认：license 检查错误已消失（2/9 → 1/9 checks failed），仅剩 brands 注册项（已知一次性待办，CI 中非阻塞）。
+
+- manifest 版本升至 2.1.6。
+

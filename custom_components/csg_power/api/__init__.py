@@ -416,8 +416,8 @@ class CSGClient:
         self._handle_unsuccessful_response(path, resp_data)
         return []
 
-    def api_get_metering_point(self, area_code: str, ele_customer_id: str) -> dict[str, Any]:
-        """Get metering point id for an electricity account."""
+    def api_get_metering_point(self, area_code: str, ele_customer_id: str) -> list[dict[str, Any]]:
+        """Get metering points for an electricity account."""
         path = "charge/queryMeteringPoint"
         payload = {
             JSON_KEY_AREA_CODE: area_code,
