@@ -207,3 +207,19 @@ custom_components/csg_power/
 - CI 的 static-checks job 现在安装 pytest/pycryptodome/requests 并运行单元测试。
 - manifest 版本升至 2.1.3。
 
+## 9. v2.1.4 改进内容
+
+### 9.1 Coordinator 业务逻辑测试（15 个新用例，共 42 个）
+
+此前测试只覆盖 api 层，本轮把 coordinator 的核心业务逻辑纳入回归防护：
+
+- `_update_latest_day`：本月亮最后一天、**0 电费回归锁定**（v2.1.3 修复）、上月回退、双方不可用、UNCHANGED 哨兵不误用。
+- `_update_states`（日期节流策略）：首次更新全刷、月初 ≤3 日刷新上月、月末跳过上月、1 月前 7 日刷新去年、同日不重复刷新去年、年月变量计算（含 1 月→去年 12 月）。
+- `_async_fetch`：成功、NotLoggedIn（置 `_login_expired` 标志）、CSGAPIError（不置标志）、任意异常兜底。
+
+### 9.2 测试基建升级
+
+- `tests/conftest.py` 从纯 MagicMock 兜底升级为**结构化 HA stub**：`DataUpdateCoordinator`/`CoordinatorEntity`/`SensorEntity` 是具有真实 `__init__` 签名的类（MagicMock 实例不能作类基类），`STATE_UNAVAILABLE`/`CONF_USERNAME`/单位枚举等是真值常量。`sensor.py` 因此可在无 HA 环境导入，业务逻辑测试成为可能；未结构化的符号仍由 MagicMock 兜底。
+- coordinator 实例用 `__new__` 构造（跳过父类初始化），仅提供方法实际触碰的属性，测试不依赖 HA 运行时。
+- manifest 版本升至 2.1.4。
+
