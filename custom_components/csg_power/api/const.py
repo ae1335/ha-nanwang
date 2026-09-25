@@ -59,6 +59,10 @@ ATTR_USER_NAME = "user_name"
 
 QR_EXPIRY_SECONDS = 300
 
+# Timeout (seconds) for every HTTP request. Prevents executor threads from
+# hanging forever when the CSG server does not respond.
+REQUEST_TIMEOUT = 30
+
 
 class LoginType(str, Enum):
     LOGIN_TYPE_SMS = "11"

@@ -31,21 +31,57 @@ for f in json_files:
 strings = json.loads((base / "strings.json").read_text(encoding="utf-8"))
 config_flow_src = (base / "config_flow.py").read_text(encoding="utf-8")
 
-# Extract step_ids from async_show_form / async_show_menu calls
-form_steps = set(re.findall(r'async_show_form\s*\(\s*step_id\s*=\s*["\']([^"\']+)["\']', config_flow_src))
-menu_steps = set(re.findall(r'async_show_menu\s*\(\s*step_id\s*=\s*["\']([^"\']+)["\']', config_flow_src))
-# Extract method-name based steps (async_step_xxx)
-method_steps = set(re.findall(r'async_step_(\w+)', config_flow_src))
-all_steps = form_steps | menu_steps | method_steps
+# Collect STEP_* constant values from const.py so step_id=STEP_XXX names
+# can be resolved to their string values.
+const_tree = ast.parse((base / "const.py").read_text(encoding="utf-8"))
+step_consts: dict[str, str] = {}
+for node in ast.walk(const_tree):
+    if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id.startswith("STEP_"):
+                step_consts[target.id] = str(node.value.value)
+
+# AST-based analysis: only steps that actually render a form/menu
+# (async_show_form / async_show_menu) need a strings.json entry. Steps that
+# only delegate (e.g. async_step_reauth -> reauth_confirm) or act as menu
+# options (covered by user.menu_options) do not.
+tree = ast.parse(config_flow_src)
+form_steps = set()
+
+
+def step_id_value(node: ast.expr):
+    """Resolve a step_id expression to a string value, or None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name) and node.id in step_consts:
+        return step_consts[node.id]
+    return None
+
+
+for node in ast.walk(tree):
+    if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr in ("async_show_form", "async_show_menu")
+            ):
+                for kw in sub.keywords:
+                    if kw.arg == "step_id":
+                        value = step_id_value(kw.value)
+                        if value:
+                            form_steps.add(value)
+
+all_steps = form_steps
 
 strings_steps = set(strings.get("config", {}).get("step", {}).keys())
 strings_steps |= set(strings.get("options", {}).get("step", {}).keys())
 
-missing = all_steps - strings_steps - {"user"}
+missing = all_steps - strings_steps
 extra = strings_steps - all_steps
 
-print(f"\nStep IDs in config_flow.py: {sorted(all_steps)}")
-print(f"Step IDs in strings.json:   {sorted(strings_steps)}")
+print(f"\nStep IDs rendering forms in config_flow.py: {sorted(all_steps)}")
+print(f"Step IDs in strings.json:                   {sorted(strings_steps)}")
 if missing:
     print(f"[WARN] Missing in strings.json: {sorted(missing)}")
     errors.append(f"Missing in strings.json: {sorted(missing)}")
@@ -82,7 +118,7 @@ if missing_aborts:
     print(f"\n[WARN] Missing abort reasons in strings.json: {sorted(missing_aborts)}")
     errors.append(f"Missing abort reasons: {sorted(missing_aborts)}")
 else:
-    print(f"\n[OK] All abort reasons present in strings.json")
+    print("\n[OK] All abort reasons present in strings.json")
 
 # 6. Check error keys
 error_keys = set(re.findall(r'errors\["base"\]\s*=\s*["\']([^"\']+)["\']', config_flow_src))
@@ -92,7 +128,7 @@ if missing_errors:
     print(f"[WARN] Missing error keys in strings.json: {sorted(missing_errors)}")
     errors.append(f"Missing error keys: {sorted(missing_errors)}")
 else:
-    print(f"[OK] All error keys present in strings.json")
+    print("[OK] All error keys present in strings.json")
 
 # 7. Summary
 print(f"\n=== Summary: {len(errors)} errors ===")

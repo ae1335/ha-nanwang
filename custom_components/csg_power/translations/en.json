@@ -77,7 +77,8 @@
     },
     "abort": {
       "no_account": "No electricity account bound to this account",
-      "all_added": "No more electricity accounts to add"
+      "all_added": "No more electricity accounts to add",
+      "cannot_connect": "Failed to connect to CSG servers, please try again later"
     }
   }
 }

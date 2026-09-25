@@ -16,7 +16,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, STATE_UNAVAILABLE, UnitOfEnergy
+from homeassistant.const import (
+    CONF_USERNAME,
+    STATE_UNAVAILABLE,
+    UnitOfCurrency,
+    UnitOfEnergy,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.entity import DeviceInfo
@@ -38,6 +43,7 @@ from .const import (
     CONF_ELE_ACCOUNTS,
     CONF_SETTINGS,
     CONF_UPDATE_INTERVAL,
+    CONF_UPDATED_AT,
     DATA_KEY_LAST_UPDATE_DAY,
     DOMAIN,
     SETTING_LAST_MONTH_UPDATE_DAY_THRESHOLD,
@@ -82,7 +88,7 @@ async def async_setup_entry(
         _LOGGER.info("No ele accounts in config, exit entry setup")
         return
 
-    coordinator = CSGCoordinator(hass, config_entry.entry_id)
+    coordinator = CSGCoordinator(hass, config_entry)
     all_sensors: list[SensorEntity] = []
 
     for account_number in config_entry.data[CONF_ELE_ACCOUNTS]:
@@ -153,36 +159,29 @@ async def async_setup_entry(
         ]
         all_sensors.extend(sensors)
 
+    # Fetch the first data set BEFORE adding entities so they are created with
+    # valid states, and so that an expired session correctly triggers reauth
+    # during setup instead of leaving unavailable sensors behind.
+    await coordinator.async_config_entry_first_refresh()
+
     async_add_entities(all_sensors)
-    _LOGGER.debug("created %d sensors for config %s", len(all_sensors), config_entry.title)
-    config_entry.async_create_task(
-        hass,
-        coordinator.async_config_entry_first_refresh(),
-        f"{config_entry.title}_first_update",
+    _LOGGER.debug(
+        "created %d sensors for config %s", len(all_sensors), config_entry.title
     )
 
 
 class CSGBaseSensor(CoordinatorEntity, SensorEntity):
     """Base CSG sensor."""
 
-    def __init__(
-        self,
-        coordinator: DataUpdateCoordinator,
-        account_number: str,
-        entity_suffix: str,
-        extra_state_attributes_key: str | None = None,
-    ) -> None:
-        SensorEntity.__init__(self)
-        CoordinatorEntity.__init__(self, coordinator)
-        self._coordinator = coordinator
-        self._account_number = account_number
-        self._entity_suffix = entity_suffix
-        self._extra_state_attributes_key = extra_state_attributes_key
-        self._attr_extra_state_attributes = {}
+    # Defaults, overridden by subclasses
+    _DEFAULT_ICON = "mdi:flash"
+    _DEFAULT_STATE_CLASS: SensorStateClass | None = None
 
-    @property
-    def unique_id(self) -> str | None:
-        return f"{DOMAIN}.{self._account_number}.{self._entity_suffix}"
+    # Per-suffix overrides (keyed by entity suffix)
+    _ICON_OVERRIDES: dict[str, str] = {}
+    _STATE_CLASS_OVERRIDES: dict[str, SensorStateClass] = {}
+    # Number of decimals displayed in the UI, per suffix (default 2)
+    _PRECISION_OVERRIDES: dict[str, int] = {}
 
     # Friendly name mapping for sensor suffixes
     _SENSOR_NAMES: dict[str, str] = {
@@ -204,10 +203,35 @@ class CSGBaseSensor(CoordinatorEntity, SensorEntity):
         SUFFIX_LAST_MONTH_COST: "上月累计电费",
     }
 
+    def __init__(
+        self,
+        coordinator: DataUpdateCoordinator,
+        account_number: str,
+        entity_suffix: str,
+        extra_state_attributes_key: str | None = None,
+    ) -> None:
+        SensorEntity.__init__(self)
+        CoordinatorEntity.__init__(self, coordinator)
+        self._coordinator = coordinator
+        self._account_number = account_number
+        self._entity_suffix = entity_suffix
+        self._extra_state_attributes_key = extra_state_attributes_key
+        self._attr_extra_state_attributes = {}
+        self._attr_name = (
+            f"{self._account_number} "
+            f"{self._SENSOR_NAMES.get(entity_suffix, entity_suffix)}"
+        )
+        self._attr_icon = self._ICON_OVERRIDES.get(entity_suffix, self._DEFAULT_ICON)
+        self._attr_state_class = self._STATE_CLASS_OVERRIDES.get(
+            entity_suffix, self._DEFAULT_STATE_CLASS
+        )
+        self._attr_suggested_display_precision = self._PRECISION_OVERRIDES.get(
+            entity_suffix, 2
+        )
+
     @property
-    def name(self) -> str | None:
-        friendly = self._SENSOR_NAMES.get(self._entity_suffix, self._entity_suffix)
-        return f"{self._account_number} {friendly}"
+    def unique_id(self) -> str | None:
+        return f"{DOMAIN}.{self._account_number}.{self._entity_suffix}"
 
     @property
     def should_poll(self) -> bool:
@@ -278,31 +302,48 @@ class CSGEnergySensor(CSGBaseSensor):
 
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL
-    _attr_icon = "mdi:lightning-bolt"
+    _DEFAULT_ICON = "mdi:lightning-bolt"
+    _DEFAULT_STATE_CLASS = SensorStateClass.TOTAL
+
+    # Remaining ladder quota is a level (it decreases over the month),
+    # so it must be measured rather than accumulated.
+    _STATE_CLASS_OVERRIDES = {
+        SUFFIX_CURRENT_LADDER_REMAINING_KWH: SensorStateClass.MEASUREMENT,
+    }
 
 
 class CSGCostSensor(CSGBaseSensor):
     """Cost sensor."""
 
-    _attr_native_unit_of_measurement = "CNY"
+    _attr_native_unit_of_measurement = UnitOfCurrency.CNY
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL
-    _attr_icon = "mdi:currency-cny"
+    _DEFAULT_ICON = "mdi:currency-cny"
+    _DEFAULT_STATE_CLASS = SensorStateClass.TOTAL
+
+    # Balance, arrears and the current tariff are instantaneous levels, not
+    # cumulative totals. Using MEASUREMENT keeps long-term statistics correct.
+    _STATE_CLASS_OVERRIDES = {
+        SUFFIX_BAL: SensorStateClass.MEASUREMENT,
+        SUFFIX_ARR: SensorStateClass.MEASUREMENT,
+        SUFFIX_CURRENT_LADDER_TARIFF: SensorStateClass.MEASUREMENT,
+    }
+
+    # Tariffs need more decimals (e.g. 0.5880 CNY/kWh)
+    _PRECISION_OVERRIDES = {SUFFIX_CURRENT_LADDER_TARIFF: 4}
 
 
 class CSGLadderStageSensor(CSGBaseSensor):
     """Ladder stage sensor."""
 
-    _attr_icon = "mdi:stairs"
+    _DEFAULT_ICON = "mdi:stairs"
 
 
 class CSGCoordinator(DataUpdateCoordinator):
     """Custom coordinator for CSG data."""
 
-    def __init__(self, hass: HomeAssistant, config_entry_id: str) -> None:
-        self._config_entry_id = config_entry_id
-        self._config = hass.config_entries.async_get_entry(config_entry_id).data
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+        self._config_entry = config_entry
+        self._config = dict(config_entry.data)
         super().__init__(
             hass,
             _LOGGER,
@@ -312,6 +353,7 @@ class CSGCoordinator(DataUpdateCoordinator):
             ),
         )
         self._client: CSGClient | None = None
+        self._login_expired = False
         self._if_update_last_month = True
         self._if_update_last_year = True
         self._this_day = 0
@@ -321,6 +363,10 @@ class CSGCoordinator(DataUpdateCoordinator):
         self._last_month_ym: tuple[int, int] = (0, 0)
         self._this_month_update_completed_flag = asyncio.Event()
         self._gathered_data: dict[str, Any] = {}
+
+    @property
+    def _config_entry_id(self) -> str:
+        return self._config_entry.entry_id
 
     async def _async_refresh_client(self) -> None:
         """Refresh the client and verify login."""
@@ -347,6 +393,7 @@ class CSGCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Timeout fetching data in function: %s", func.__name__)
             return False, (func.__name__, err)
         except NotLoggedIn as err:
+            self._login_expired = True
             _LOGGER.error(
                 "Session invalidated unexpectedly in function: %s", func.__name__
             )
@@ -728,9 +775,9 @@ class CSGCoordinator(DataUpdateCoordinator):
         self._last_year = last_year
         self._last_month_ym = last_month_ym
 
-        last_update_day = self.hass.data[DOMAIN][self._config_entry_id].get(
-            DATA_KEY_LAST_UPDATE_DAY
-        )
+        last_update_day = self.hass.data.get(DOMAIN, {}).get(
+            self._config_entry_id, {}
+        ).get(DATA_KEY_LAST_UPDATE_DAY)
         if last_update_day is None:
             update_last_month = True
             update_last_year = True
@@ -776,6 +823,9 @@ class CSGCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API for all configured accounts."""
+        # Always read the latest entry data so that option changes and device
+        # removals take effect without waiting for a full reload.
+        self._config = dict(self._config_entry.data)
         self.update_interval = timedelta(
             seconds=self._config[CONF_SETTINGS][CONF_UPDATE_INTERVAL]
         )
@@ -787,6 +837,7 @@ class CSGCoordinator(DataUpdateCoordinator):
         config_entry_need_update = False
         await self._async_refresh_client()
         new_config = dict(self._config)
+        new_config[CONF_ELE_ACCOUNTS] = dict(self._config[CONF_ELE_ACCOUNTS])
 
         for account_number, account_data in self._config[CONF_ELE_ACCOUNTS].items():
             self._gathered_data[account_number] = {}
@@ -818,13 +869,20 @@ class CSGCoordinator(DataUpdateCoordinator):
         if config_entry_need_update:
             new_config[CONF_UPDATED_AT] = str(int(time.time() * 1000))
             self.hass.config_entries.async_update_entry(
-                self.hass.config_entries.async_get_entry(self._config_entry_id),
+                self._config_entry,
                 data=new_config,
             )
             _LOGGER.debug("Updated accounts with metering point number")
 
         _LOGGER.debug("Coordinator update took %s seconds", time.time() - start_time)
-        self.hass.data[DOMAIN][self._config_entry_id][
-            DATA_KEY_LAST_UPDATE_DAY
-        ] = self._this_day
+        if DOMAIN in self.hass.data and self._config_entry_id in self.hass.data[DOMAIN]:
+            self.hass.data[DOMAIN][self._config_entry_id][
+                DATA_KEY_LAST_UPDATE_DAY
+            ] = self._this_day
+
+        if self._login_expired:
+            # The session died mid-cycle: trigger the reauth flow immediately
+            # instead of waiting for the next polling round.
+            raise ConfigEntryAuthFailed("Login expired")
+
         return self._gathered_data

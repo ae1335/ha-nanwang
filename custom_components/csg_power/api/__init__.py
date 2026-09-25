@@ -59,6 +59,7 @@ from .const import (
     PARAM_IV,
     PARAM_KEY,
     QRCodeType,
+    REQUEST_TIMEOUT,
     RESP_STA_LOGIN_WRONG_CREDENTIAL,
     RESP_STA_NO_LOGIN,
     RESP_STA_QR_NOT_SCANNED,
@@ -71,7 +72,28 @@ from .exceptions import (
     CSGHTTPError,
     InvalidCredentials,
     NotLoggedIn,
+    QrCodeExpired,
 )
+
+# Public re-exports of the API package
+__all__ = [
+    "CSGClient",
+    "CSGElectricityAccount",
+    "CSGAPIError",
+    "CSGHTTPError",
+    "InvalidCredentials",
+    "NotLoggedIn",
+    "QrCodeExpired",
+    "LoginType",
+    "QRCodeType",
+    "LOGIN_TYPE_TO_QR_APP_NAME",
+    "LOGIN_TYPE_TO_QR_CODE_TYPE",
+    "generate_qr_login_id",
+    "encrypt_credential",
+    "encrypt_params",
+    "decrypt_params",
+    "safe_float",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +129,16 @@ def decrypt_params(encrypted: str) -> dict[str, Any]:
     json_cipher = AES.new(PARAM_KEY, AES.MODE_CBC, PARAM_IV)
     decrypted = json_cipher.decrypt(b64decode(encrypted))
     return json.loads(decrypted.decode().strip("\x00"))
+
+
+def safe_float(value: Any, default: float | None = None) -> float | None:
+    """Convert a value to float, returning default when not convertible."""
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class CSGElectricityAccount:
@@ -214,7 +246,7 @@ class CSGClient:
         if method != "POST":
             raise NotImplementedError("Only POST is supported")
 
-        response = self._session.post(url, json=payload, headers=headers)
+        response = self._session.post(url, json=payload, headers=headers, timeout=REQUEST_TIMEOUT)
         if response.status_code != 200:
             _LOGGER.error("API %s returned HTTP %d", path, response.status_code)
             raise CSGHTTPError(response.status_code)
@@ -540,8 +572,14 @@ class CSGClient:
         ele_users = self.api_get_all_linked_electricity_accounts()
 
         for item in ele_users:
-            area_code = item[JSON_KEY_AREA_CODE]
-            binding_id = item["bindingId"]
+            area_code = item.get(JSON_KEY_AREA_CODE)
+            binding_id = item.get("bindingId")
+            if not area_code or not binding_id:
+                _LOGGER.warning(
+                    "Skipping linked electricity account with missing keys: %s",
+                    item,
+                )
+                continue
             metering_data = self.api_get_metering_point(area_code, binding_id)
             if not metering_data:
                 continue
@@ -551,10 +589,10 @@ class CSGClient:
                     account_number=item["eleCustNumber"],
                     area_code=area_code,
                     ele_customer_id=binding_id,
-                    metering_point_id=mp[JSON_KEY_METERING_POINT_ID],
-                    metering_point_number=mp[JSON_KEY_METERING_POINT_NUMBER],
-                    address=item["eleAddress"],
-                    user_name=item["userName"],
+                    metering_point_id=mp.get(JSON_KEY_METERING_POINT_ID),
+                    metering_point_number=mp.get(JSON_KEY_METERING_POINT_NUMBER),
+                    address=item.get("eleAddress"),
+                    user_name=item.get("userName"),
                 )
             )
         return result
@@ -571,9 +609,9 @@ class CSGClient:
             account.ele_customer_id,
             account.metering_point_id,
         )
-        month_total = float(resp.get("totalPower", 0))
+        month_total = safe_float(resp.get("totalPower"), 0.0) or 0.0
         by_day = [
-            {"date": d["date"], "kwh": float(d["power"])}
+            {"date": d["date"], "kwh": safe_float(d.get("power"), 0.0) or 0.0}
             for d in resp.get("result", [])
         ]
         return month_total, by_day
@@ -594,21 +632,22 @@ class CSGClient:
         by_day = [
             {
                 "date": d["date"],
-                "charge": float(d["charge"]),
-                "kwh": float(d["power"]),
+                "charge": safe_float(d.get("charge"), 0.0) or 0.0,
+                "kwh": safe_float(d.get("power"), 0.0) or 0.0,
             }
             for d in resp.get("result", [])
         ]
 
-        month_total_cost = (
-            float(resp["totalElectricity"]) if resp.get("totalElectricity") is not None else None
-        )
-        month_total_kwh = (
-            float(resp["totalPower"]) if resp.get("totalPower") is not None else None
-        )
+        month_total_cost = safe_float(resp.get("totalElectricity"))
+        month_total_kwh = safe_float(resp.get("totalPower"))
 
         ladder = {
-            "ladder": int(resp["ladderEle"]) if resp.get("ladderEle") is not None else None,
+            "ladder": (
+                int(resp["ladderEle"])
+                if resp.get("ladderEle") is not None
+                and str(resp["ladderEle"]).lstrip("-").isdigit()
+                else None
+            ),
             "start_date": (
                 datetime.datetime.strptime(
                     resp["ladderEleStartDate"], "%Y-%m-%d %H:%M:%S.%f"
@@ -616,16 +655,8 @@ class CSGClient:
                 if resp.get("ladderEleStartDate")
                 else None
             ),
-            "remaining_kwh": (
-                float(resp["ladderEleSurplus"])
-                if resp.get("ladderEleSurplus") is not None
-                else None
-            ),
-            "tariff": (
-                float(resp["ladderEleTariff"])
-                if resp.get("ladderEleTariff") is not None
-                else None
-            ),
+            "remaining_kwh": safe_float(resp.get("ladderEleSurplus")),
+            "tariff": safe_float(resp.get("ladderEleTariff")),
         }
 
         return month_total_cost, month_total_kwh, ladder, by_day
@@ -638,7 +669,9 @@ class CSGClient:
             account.area_code, account.ele_customer_id
         )
         data = resp[0] if isinstance(resp, list) else resp
-        return float(data.get("balance", 0)), float(data.get("arrears", 0))
+        balance = safe_float(data.get("balance"), 0.0) or 0.0
+        arrears = safe_float(data.get("arrears"), 0.0) or 0.0
+        return balance, arrears
 
     def get_year_month_stats(
         self, account: CSGElectricityAccount, year: int
@@ -647,13 +680,13 @@ class CSGClient:
         resp = self.api_get_fee_analyze_details(
             year, account.area_code, account.ele_customer_id
         )
-        total_kwh = resp.get("totalBillingElectricity", 0)
-        total_cost = resp.get("totalActualAmount", 0)
+        total_kwh = safe_float(resp.get("totalBillingElectricity"), 0.0) or 0.0
+        total_cost = safe_float(resp.get("totalActualAmount"), 0.0) or 0.0
         by_month = [
             {
                 "month": m[JSON_KEY_YEAR_MONTH],
-                "charge": float(m.get("actualTotalAmount", 0)),
-                "kwh": float(m.get("billingElectricity", 0)),
+                "charge": safe_float(m.get("actualTotalAmount"), 0.0) or 0.0,
+                "kwh": safe_float(m.get("billingElectricity"), 0.0) or 0.0,
             }
             for m in resp.get("electricAndChargeList", [])
         ]
@@ -664,6 +697,4 @@ class CSGClient:
         resp = self.api_query_day_electric_by_m_point_yesterday(
             account.area_code, account.ele_customer_id
         )
-        if resp.get("power") is not None:
-            return float(resp["power"])
-        return None
+        return safe_float(resp.get("power"))

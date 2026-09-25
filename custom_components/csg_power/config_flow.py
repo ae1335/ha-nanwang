@@ -20,6 +20,7 @@ from .api import (
     LOGIN_TYPE_TO_QR_CODE_TYPE,
     CSGClient,
     CSGElectricityAccount,
+    CSGAPIError,
     InvalidCredentials,
     LoginType,
 )
@@ -51,7 +52,6 @@ from .const import (
     STEP_SMS_LOGIN,
     STEP_SMS_PWD_LOGIN,
     STEP_USER,
-    STEP_VALIDATE_QR_LOGIN,
     STEP_VALIDATE_SMS_CODE,
     STEP_WX_QR_LOGIN,
 )
@@ -406,6 +406,11 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
             for account in self.all_electricity_accounts:
                 if account.account_number == account_num_to_add:
                     new_data = dict(self.config_entry.data)
+                    # Explicitly copy the nested dict: a shallow dict() copy
+                    # would mutate the original entry data in place.
+                    new_data[CONF_ELE_ACCOUNTS] = dict(
+                        self.config_entry.data[CONF_ELE_ACCOUNTS]
+                    )
                     new_data[CONF_ELE_ACCOUNTS][account_num_to_add] = account.dump()
                     new_data[CONF_UPDATED_AT] = str(int(time.time() * 1000))
                     self.hass.config_entries.async_update_entry(
@@ -424,7 +429,11 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
         client = CSGClient.load(
             {CONF_AUTH_TOKEN: self.config_entry.data[CONF_AUTH_TOKEN]}
         )
-        logged_in = await self.hass.async_add_executor_job(client.verify_login)
+        try:
+            logged_in = await self.hass.async_add_executor_job(client.verify_login)
+        except (RequestException, CSGAPIError):
+            _LOGGER.exception("Cannot reach CSG servers when adding account")
+            return self.async_abort(reason=ERROR_CANNOT_CONNECT)
         if not logged_in:
             raise ConfigEntryAuthFailed("Login expired")
         await self.hass.async_add_executor_job(client.initialize)
@@ -477,7 +486,15 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_show_form(step_id=STEP_SETTINGS, data_schema=schema)
 
         new_data = dict(self.config_entry.data)
-        new_data[CONF_SETTINGS][CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+        # Explicitly copy the nested dict: a shallow dict() copy would mutate
+        # the original entry data in place.
+        new_data[CONF_SETTINGS] = {
+            **self.config_entry.data[CONF_SETTINGS],
+            CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+        }
         new_data[CONF_UPDATED_AT] = str(int(time.time() * 1000))
         self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+        # Reload so the running coordinator picks up the new interval
+        # immediately instead of after the next HA restart.
+        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
         return self.async_create_entry(title="", data={})

@@ -104,3 +104,43 @@ custom_components/csg_power/
 - 与原仓库一样，仍需手动处理登录态过期问题：登录过期后 Home Assistant 会提示重新配置。
 - 阶梯电价、峰谷电价等计算不在本集成范围内，仅做数据抓取。
 - 建议更新间隔不低于 60 秒，默认 4 小时。
+
+## 5. v2.1.0 改进内容
+
+### 5.1 稳健性
+
+1. **HTTP 超时**：所有 API 请求增加 30 秒超时（`REQUEST_TIMEOUT`）。此前 `requests.post` 无超时，南网服务器无响应时会永久占用执行器线程。
+2. **启动容错**：`async_setup_entry` 中验证登录态时，网络异常（`RequestException`/`CSGAPIError`）现抛出 `ConfigEntryNotReady`，HA 启动早于网络就绪时会自动退避重试，而不是永久失败。
+3. **会话中途过期**：coordinator 轮询中一旦捕获 `NotLoggedIn`，本轮结束立即抛出 `ConfigEntryAuthFailed` 触发重新认证流程，不再等到下一轮询。
+4. **移除集成时登出**：`async_remove_entry` 中登出请求增加异常捕获，网络不可用时不阻塞集成删除。
+
+### 5.2 数据正确性（传感器 state_class 修复）
+
+| 传感器 | 原状态类 | 现状态类 | 原因 |
+|---|---|---|---|
+| 余额、欠费 | total | **measurement** | 余额是瞬时水平量，非累计量，原写法导致长期统计失真 |
+| 阶梯剩余电量 | total | **measurement** | 随月份递减的水平量 |
+| 阶梯电价 | total | **measurement** | 价格是瞬时量 |
+
+另为数值传感器增加 `suggested_display_precision`（常规 2 位小数，阶梯电价 4 位）。
+
+### 5.3 实体与刷新语义
+
+1. **先刷新后建实体**：`async_setup_entry` 改为 `await async_config_entry_first_refresh()` 后再 `async_add_entities`。实体创建即有数据；首次刷新时登录过期会正确触发 reauth，而非遗留不可用实体。
+2. **配置实时生效**：coordinator 每轮从 `config_entry.data` 重新读取配置（此前为启动时快照），修改刷新间隔等选项后下一轮即生效。
+3. **API 层空值保护**：新增 `safe_float()` 工具，`totalPower`/`totalActualAmount`/`balance` 等字段为 `None` 时不再抛 `TypeError`；绑定缴费号列表缺关键字段时跳过并告警而非崩溃。
+
+### 5.4 配置流修复
+
+1. **浅拷贝 mutation 修复**：选项流中 `dict(entry.data)` 是浅拷贝，直接修改 `new_data[CONF_ELE_ACCOUNTS]`/`new_data[CONF_SETTINGS]` 实际上原地改写了 entry.data 内层对象。现均改为显式拷贝内层字典。
+2. **设置修改立即生效**：`async_step_settings` 修改刷新间隔后 reload 集成（原实现需重启 HA 或手动重载才生效——真实 bug）。
+3. **添加缴费号网络异常**：`async_step_add_account` 中连接南网失败时以 `cannot_connect` 中止（已补翻译），而非裸异常。
+4. **删除设备后重载**：`async_remove_config_entry_device` 移除账户后 reload 集成，coordinator 立即停止轮询已删除账户（原先会一直轮询直至重启）。
+
+### 5.5 其它
+
+- manifest.json：版本升至 2.1.0，新增 `integration_type: hub`；移除空的 `homekit`/`ssdp`/`zeroconf` 字段。
+- 翻译：options 流新增 `cannot_connect` 中止原因（zh-Hans / en）。
+- README 重写：新增实体表（含状态类说明）、Energy 面板使用说明、FAQ、调试方法、更新节流策略说明。
+- 文档与代码中单位常量改用 `UnitOfCurrency.CNY`。
+
