@@ -116,11 +116,14 @@ def encrypt_params(params: dict[str, Any]) -> str:
     """Encrypt request body using AES-CBC."""
     json_cipher = AES.new(PARAM_KEY, AES.MODE_CBC, PARAM_IV)
 
-    def pad(content: str) -> str:
-        return content + (16 - len(content) % 16) * "\x00"
-
     json_str = json.dumps(params, ensure_ascii=False, separators=(",", ":"))
-    encrypted = json_cipher.encrypt(pad(json_str).encode("utf8"))
+    raw = json_str.encode("utf8")
+    # Padding must be computed on the ENCODED byte length, not the character
+    # count: Chinese characters take 3 bytes in UTF-8, so a character-based
+    # pad produces a non-block-aligned payload and AES-CBC raises
+    # "Data must be padded to 16 byte boundary".
+    padded = raw + (16 - len(raw) % 16) * b"\x00"
+    encrypted = json_cipher.encrypt(padded)
     return b64encode(encrypted).decode()
 
 

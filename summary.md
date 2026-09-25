@@ -180,3 +180,30 @@ custom_components/csg_power/
 - `verify_all.py` 新增**翻译结构一致性检查**：strings.json / zh-Hans.json / en.json 三份文件键结构必须完全一致，防止未来某个语言悄悄缺翻译。
 - manifest 版本升至 2.1.2。
 
+## 8. v2.1.3 改进内容
+
+### 8.1 新增单元测试套件（27 个用例）
+
+项目此前完全依赖静态检查，本轮为无 Home Assistant 依赖的纯逻辑层建立了 `tests/`（pytest）：
+
+- `safe_float`：None/空串/非法串/合法数值全边界
+- `encrypt_params` / `decrypt_params`：AES-CBC 加解密往返（含中文、空对象、base64 合法性）
+- `CSGElectricityAccount.dump()/load()`：序列化往返、缺必填键报错、计量点号可选
+- `merge_by_day_data`：双方不可用、单方回退、长度优先、charge 补丁合并、kwh 取最大等全分支
+- `CSGClient._make_request`：成功路径（并断言 timeout 传参）、非 200 → CSGHTTPError、非法 JSON → CSGAPIError、鉴权头注入
+- `verify_login`：正常 / NotLoggedIn → False
+- `logout`：LoginType 枚举 → "11"、纯字符串透传（回归锁定 v2.1.1 的修复）
+- `tests/conftest.py` 在未安装 HA 的环境中注入 stub 模块，使 `csg_power` 包可初始化
+
+`merge_by_day_data` 为此从 sensor.py（依赖 HA）迁至新的 `utils.py`（零 HA 依赖），coordinator 调用点同步更新。
+
+### 8.2 测试直接抓出的真 bug：加密填充按字符计算
+
+`encrypt_params` 的零填充按 **Unicode 字符数**计算（`len(content)`），而 AES-CBC 需要按 **UTF-8 字节数**对齐——中文每字 3 字节，任何含中文的加密请求体都会抛出 "Data must be padded to 16 byte boundary"。当前登录 payload 恰好全 ASCII 才未触发。已改为对编码后的字节序列填充；对 ASCII 输入行为完全不变（27 个用例含中文往返验证）。
+
+### 8.3 其它
+
+- 修复"最近日电费"为 0 时被 `or` 运算误判为不可用的边界（改为显式 None 判断）。
+- CI 的 static-checks job 现在安装 pytest/pycryptodome/requests 并运行单元测试。
+- manifest 版本升至 2.1.3。
+

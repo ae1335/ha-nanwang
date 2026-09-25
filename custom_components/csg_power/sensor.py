@@ -74,6 +74,7 @@ from .const import (
     WF_ATTR_LADDER_START_DATE,
     WF_ATTR_LADDER_TARIFF,
 )
+from .utils import merge_by_day_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -484,41 +485,6 @@ class CSGCoordinator(DataUpdateCoordinator):
             ATTR_KEY_LAST_YEAR_BY_MONTH: last_year_by_month
         }
 
-    @staticmethod
-    def merge_by_day_data(
-        by_day_from_cost: list | str,
-        kwh_from_cost: float | str,
-        by_day_from_usage: list | str,
-        kwh_from_usage: float | str,
-    ) -> tuple[list | str, float | str]:
-        """Merge daily cost and usage data, preferring the newer source."""
-        if (
-            by_day_from_cost == STATE_UNAVAILABLE
-            and by_day_from_usage == STATE_UNAVAILABLE
-        ):
-            by_day = STATE_UNAVAILABLE
-        elif by_day_from_cost == STATE_UNAVAILABLE:
-            by_day = by_day_from_usage
-        elif by_day_from_usage == STATE_UNAVAILABLE:
-            by_day = by_day_from_cost
-        else:
-            if len(by_day_from_cost) >= len(by_day_from_usage):
-                by_day = by_day_from_cost
-            else:
-                by_day = by_day_from_usage
-                for idx, item in enumerate(by_day_from_cost):
-                    by_day[idx][WF_ATTR_CHARGE] = item[WF_ATTR_CHARGE]
-
-        if kwh_from_cost == STATE_UNAVAILABLE and kwh_from_usage == STATE_UNAVAILABLE:
-            kwh = STATE_UNAVAILABLE
-        elif kwh_from_cost == STATE_UNAVAILABLE:
-            kwh = kwh_from_usage
-        elif kwh_from_usage == STATE_UNAVAILABLE:
-            kwh = kwh_from_cost
-        else:
-            kwh = max(kwh_from_cost, kwh_from_usage)
-        return by_day, kwh
-
     async def _async_update_this_month_stats_and_ladder(
         self, account: CSGElectricityAccount
     ) -> None:
@@ -592,7 +558,7 @@ class CSGCoordinator(DataUpdateCoordinator):
                 STATE_UNAVAILABLE,
             )
 
-        this_month_by_day, this_month_kwh = self.merge_by_day_data(
+        this_month_by_day, this_month_kwh = merge_by_day_data(
             by_day_from_usage=this_month_by_day_from_usage,
             kwh_from_usage=this_month_kwh_from_usage,
             by_day_from_cost=this_month_by_day_from_cost,
@@ -685,7 +651,7 @@ class CSGCoordinator(DataUpdateCoordinator):
                 STATE_UNAVAILABLE,
             )
 
-        last_month_by_day, last_month_kwh = self.merge_by_day_data(
+        last_month_by_day, last_month_kwh = merge_by_day_data(
             by_day_from_usage=last_month_by_day_from_usage,
             kwh_from_usage=last_month_kwh_from_usage,
             by_day_from_cost=last_month_by_day_from_cost,
@@ -724,8 +690,11 @@ class CSGCoordinator(DataUpdateCoordinator):
             and len(this_month_by_day) >= 1
         ):
             latest_day_kwh = this_month_by_day[-1][WF_ATTR_KWH]
+            latest_cost = this_month_by_day[-1].get(WF_ATTR_CHARGE)
+            # Explicit None check: a legitimate 0 cost day must not be
+            # reported as unavailable.
             latest_day_cost = (
-                this_month_by_day[-1].get(WF_ATTR_CHARGE) or STATE_UNAVAILABLE
+                STATE_UNAVAILABLE if latest_cost is None else latest_cost
             )
             latest_day_date = this_month_by_day[-1][WF_ATTR_DATE]
         elif (

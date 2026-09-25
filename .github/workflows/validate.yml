@@ -19,14 +19,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pyflakes
-        run: pip install pyflakes
+      - name: Install test dependencies
+        run: pip install pyflakes pytest pycryptodome requests
 
       - name: Run pyflakes
-        run: python -m pyflakes custom_components/csg_power verify_all.py
+        run: python -m pyflakes custom_components/csg_power tests verify_all.py
 
       - name: Run verify_all.py
         run: python verify_all.py
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -v
 
   hassfest:
     name: Hassfest validation
