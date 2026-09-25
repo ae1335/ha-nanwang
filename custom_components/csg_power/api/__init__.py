@@ -253,7 +253,13 @@ class CSGClient:
 
         json_str = response.content.decode("utf-8", errors="ignore")
         json_str = json_str[json_str.find("{") : json_str.rfind("}") + 1]
-        response_data = json.loads(json_str)
+        try:
+            response_data = json.loads(json_str)
+        except json.JSONDecodeError as err:
+            _LOGGER.error(
+                "API %s returned invalid JSON response: %s", path, err
+            )
+            raise CSGAPIError("invalid_json", json_str[:100]) from err
         _LOGGER.debug(
             "API %s response: %s",
             path,
@@ -559,7 +565,11 @@ class CSGClient:
 
     def logout(self, login_type: Any) -> None:
         """Logout and reset the session."""
-        self.api_logout(LOGON_CHANNEL_HANDHELD_HALL, str(login_type))
+        # login_type can be a LoginType enum or the plain string persisted in
+        # config entry data. str(LoginType.X) yields "LoginType.X" rather than
+        # the value, so normalize explicitly.
+        cred_type = str(getattr(login_type, "value", login_type))
+        self.api_logout(LOGON_CHANNEL_HANDHELD_HALL, cred_type)
         self.auth_token = None
         self.customer_number = None
 

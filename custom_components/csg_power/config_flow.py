@@ -206,7 +206,7 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             error_detail = str(exc)
         else:
             return await self.create_or_update_config_entry(
-                auth_token, login_type, password, username
+                auth_token, login_type, username
             )
         return self.async_show_form(
             step_id=STEP_VALIDATE_SMS_CODE,
@@ -282,7 +282,7 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             username = user_info.get("mobile", "")
             await self.check_and_set_unique_id(username)
             return await self.create_or_update_config_entry(
-                auth_token, login_type, "", username
+                auth_token, login_type, username
             )
 
         image_link = self.context["user_data"]["image_link"]
@@ -305,19 +305,29 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Set unique id and abort if already configured."""
         unique_id = f"CSG-{username}"
         await self.async_set_unique_id(unique_id)
+        # During a reauth flow the entry being re-authenticated already owns
+        # this unique id. HA (at least up to 2024.x) does NOT exempt it inside
+        # _abort_if_unique_id_configured, so without this guard the reauth
+        # flow would always abort with "already_configured" and the user
+        # could never re-login after the session expired.
+        if self._reauth_entry is not None:
+            if self._reauth_entry.unique_id == unique_id:
+                return
         self._abort_if_unique_id_configured()
 
     async def create_or_update_config_entry(
         self,
         auth_token: str,
         login_type: LoginType,
-        password: str,
         username: str,
     ) -> FlowResult:
         """Create or update the config entry."""
+        # NOTE: the password is intentionally NOT persisted. It is only used
+        # within the flow to complete this login; nothing re-reads it later
+        # (no auto-relogin exists), so storing it would just leave a plaintext
+        # credential in .storage.
         data = {
             CONF_USERNAME: username,
-            CONF_PASSWORD: password,
             CONF_LOGIN_TYPE: login_type,
             CONF_AUTH_TOKEN: auth_token,
             CONF_ELE_ACCOUNTS: {},

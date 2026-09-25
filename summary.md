@@ -144,3 +144,23 @@ custom_components/csg_power/
 - README 重写：新增实体表（含状态类说明）、Energy 面板使用说明、FAQ、调试方法、更新节流策略说明。
 - 文档与代码中单位常量改用 `UnitOfCurrency.CNY`。
 
+## 6. v2.1.1 改进内容
+
+### 6.1 关键 bug：reauth 流程被误中止（已修复）
+
+经核对 HA 2024.4.3 源码验证：`ConfigFlow._abort_if_unique_id_configured()` 内部**没有**针对 reauth 的豁免逻辑（`_async_current_entries` 也不会排除正在被重新认证的 entry）。而本集成的 reauth 流程会经过 `check_and_set_unique_id()` → `_abort_if_unique_id_configured()`，由于被重新认证的 entry 本身就持有 `CSG-<手机号>` 这个 unique_id，**reauth 流程必然在输入手机号后即被 `already_configured` 中止——登录过期后用户根本无法完成重新认证**。
+
+修复：`check_and_set_unique_id()` 现在检测 reauth 上下文（`self._reauth_entry`），当其 unique_id 与当前输入匹配时跳过 abort；仅在不同 entry 冲突时才中止。
+
+### 6.2 安全与健壮性
+
+1. **不再持久化明文密码**：`CONF_PASSWORD` 之前被写入 entry.data（即明文落在 `.storage`），但全工程无任何读取方（不存在自动重登）。现仅在 flow 内存上下文中传递，完成登录后即丢弃；reauth 更新 entry 时会顺带清掉旧数据中遗留的密码。
+2. **logout 凭据类型归一化**：`str(LoginType.LOGIN_TYPE_SMS)` 会得到 `"LoginType.LOGIN_TYPE_SMS"` 而非 `"11"`（Python 枚举 `__str__` 行为）。现改用 `getattr(login_type, "value", login_type)`，兼容枚举与持久化后的纯字符串两种形态。
+3. **非法 JSON 响应**：`_make_request` 解析响应体失败时抛出 `CSGAPIError("invalid_json", ...)`，替代原先的裸 `JSONDecodeError`，coordinator 与 config flow 中均能归类为 API 错误而非"未知异常"。
+
+### 6.3 仓库与 CI
+
+1. 移除过期的 `csg_power_v2.0.0.zip`（HACS 不依赖 zip，且其内容已过时；发布建议改用 GitHub Release 附件）。
+2. 新增 `.github/workflows/validate.yml`：push/PR 时自动运行 pyflakes、verify_all.py、hassfest 校验与 HACS 校验。
+3. manifest 版本升至 2.1.1。
+
