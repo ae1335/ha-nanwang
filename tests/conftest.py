@@ -50,14 +50,10 @@ if not _HA_AVAILABLE:
     class _UnitOfEnergy:
         KILO_WATT_HOUR = "kWh"
 
-    class _UnitOfCurrency:
-        CNY = "CNY"
-
     class _Platform:
         SENSOR = "sensor"
 
     const_mod.UnitOfEnergy = _UnitOfEnergy
-    const_mod.UnitOfCurrency = _UnitOfCurrency
     const_mod.Platform = _Platform
 
     # --- homeassistant.core ------------------------------------------------

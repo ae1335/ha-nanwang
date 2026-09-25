@@ -251,3 +251,19 @@ verify_all.py 新增 **AST 交叉检查**：sensor.py 中引用的所有 `SUFFIX
 
 - manifest 版本升至 2.1.6。
 
+## 12. v2.1.7 改进内容（紧急修复：集成无法加载）
+
+### 12.1 真实环境暴露的严重 bug：导入了不存在的 UnitOfCurrency
+
+用户真实 HA 环境（Python 3.14）报 `ImportError: cannot import name 'UnitOfCurrency' from 'homeassistant.const'`，导致 **sensor.py 无法导入、集成完全不可用**（"Error setting up entry"）。
+
+根因：v2.1.0 将货币单位从字符串 `"CNY"` 重构为 `UnitOfCurrency.CNY` 时想当然——**HA core 根本没有 `UnitOfCurrency` 枚举**（货币传感器直接使用货币代码字符串）。该错误逃过了全部静态防线：pyflakes 不查第三方符号存在性、42 个单元测试跑在 stub 上（stub 提供了该符号）、AST 校验也不涉及——只有真实 HA 导入才暴露。
+
+修复：改回 `_attr_native_unit_of_measurement = "CNY"` 字符串，并逐一核对其余全部 homeassistant 导入符号。
+
+### 12.2 终极防线：CI 真实 HA 导入检查
+
+CI 的 static-checks job 现在**安装真实的 homeassistant 包**（Python 3.13）：42 个单元测试直接跑在真实 HA 上（conftest 检测到真包后自动弃用 stub），并额外显式导入 `csg_power` / `sensor` / `config_flow` 三个模块。今后任何"引用了 HA 中不存在的符号"的改动都会在 CI 直接失败，不会再漏到用户环境。
+
+- manifest 版本升至 2.1.7。
+

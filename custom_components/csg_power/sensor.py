@@ -19,7 +19,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_USERNAME,
     STATE_UNAVAILABLE,
-    UnitOfCurrency,
     UnitOfEnergy,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -316,7 +315,9 @@ class CSGEnergySensor(CSGBaseSensor):
 class CSGCostSensor(CSGBaseSensor):
     """Cost sensor."""
 
-    _attr_native_unit_of_measurement = UnitOfCurrency.CNY
+    # NOTE: HA has no UnitOfCurrency enum; monetary sensors take the currency
+    # code as a plain string.
+    _attr_native_unit_of_measurement = "CNY"
     _attr_device_class = SensorDeviceClass.MONETARY
     _DEFAULT_ICON = "mdi:currency-cny"
     _DEFAULT_STATE_CLASS = SensorStateClass.TOTAL
