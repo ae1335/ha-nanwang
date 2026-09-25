@@ -28,6 +28,54 @@ for f in json_files:
         errors.append(f"[FAIL] {f.relative_to(base)} - {e}")
         print(f"[FAIL] {f.relative_to(base)} - {e}")
 
+# 2.5 Manifest integrity
+manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+manifest_errors = []
+
+REQUIRED_MANIFEST_KEYS = (
+    "domain",
+    "name",
+    "version",
+    "documentation",
+    "issue_tracker",
+    "codeowners",
+    "iot_class",
+    "requirements",
+    "config_flow",
+)
+for key in REQUIRED_MANIFEST_KEYS:
+    if key not in manifest:
+        manifest_errors.append(f"missing required key: {key}")
+
+if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("version", ""))):
+    manifest_errors.append(f"version is not semantic (x.y.z): {manifest.get('version')}")
+
+if manifest.get("domain") != base.name:
+    manifest_errors.append(
+        f"domain {manifest.get('domain')!r} does not match directory name {base.name!r}"
+    )
+
+VALID_IOT_CLASSES = {
+    "assumed_state",
+    "cloud_polling",
+    "cloud_push",
+    "local_polling",
+    "local_push",
+}
+if manifest.get("iot_class") not in VALID_IOT_CLASSES:
+    manifest_errors.append(f"unknown iot_class: {manifest.get('iot_class')}")
+
+for req in manifest.get("requirements", []):
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]+(==|>=|<=|~=|!=|>|<)?[A-Za-z0-9_.]*", req):
+        manifest_errors.append(f"malformed requirement: {req}")
+
+if manifest_errors:
+    for err in manifest_errors:
+        print(f"[FAIL] manifest.json - {err}")
+    errors.append(f"manifest.json: {manifest_errors}")
+else:
+    print(f"[OK] manifest.json integrity (version {manifest.get('version')})")
+
 # 3. Check step_ids in config_flow.py vs strings.json
 strings = json.loads((base / "strings.json").read_text(encoding="utf-8"))
 config_flow_src = (base / "config_flow.py").read_text(encoding="utf-8")

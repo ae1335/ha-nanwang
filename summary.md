@@ -223,3 +223,15 @@ custom_components/csg_power/
 - coordinator 实例用 `__new__` 构造（跳过父类初始化），仅提供方法实际触碰的属性，测试不依赖 HA 运行时。
 - manifest 版本升至 2.1.4。
 
+## 10. v2.1.5 改进内容
+
+### 10.1 加回 brotli 依赖（条件性回归修复）
+
+初版 v2.0.0 的 requirements 为 `["pycryptodome", "brotli", "async_timeout"]`，后续 "remove unused deps" 提交把 brotli 一并删除——删除者只看到代码里没有 `import brotli`，但 `_common_headers` 手动宣告了 `Accept-Encoding: gzip, deflate, br`：服务器返回 Brotli 压缩响应时，环境中若无 brotli 包则响应体无法解压（requests/urllib3 依赖 brotli 解码 br）。多数 HA 环境因 aiohttp speedups 附带 Brotli 而侥幸正常，但依赖未声明即不受保证。已加回 `"brotli>=1.1"`，与 header 宣告能力和上游实测行为对齐；`async_timeout` 的删除经核实是正确的（代码已改用 `asyncio.timeout`）。
+
+### 10.2 CI 与校验工具
+
+- workflow 增加最小权限声明（`permissions: contents: read`），Actions 安全基线。
+- verify_all.py 新增 **manifest 完整性检查**：必填键齐全、version 语义化格式（x.y.z）、domain 与目录名一致、iot_class 合法值、requirements 条目格式规范。
+- manifest 版本升至 2.1.5。
+
